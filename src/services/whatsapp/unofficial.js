@@ -6,6 +6,7 @@ import makeWASocket, {
   Browsers
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
+import QRCode from 'qrcode';
 import { config } from '../../config/index.js';
 import webhookService from '../../services/webhook.js';
 import fs from 'fs';
@@ -23,6 +24,10 @@ class UnofficialWhatsAppService {
     this.messageCallbacks = [];
     this.ownMessageCallbacks = []; // Добавлено для обработки сообщений от себя
     this.sessionPath = path.resolve(__dirname, '../../..', config.unofficial.sessionPath);
+    /** Текущий QR для авторизации (для отдачи по HTTP / отправки в Telegram) */
+    this.currentQr = null;
+    this.currentQrDataUrl = null;
+    this.qrCallbacks = [];
 
     // Создаем директорию для сессий если её нет
     if (!fs.existsSync(this.sessionPath)) {
@@ -68,6 +73,13 @@ class UnofficialWhatsAppService {
           if (qr) {
             console.log('QR Code received, scan it with your WhatsApp:');
             qrcode.generate(qr, { small: true });
+            this.currentQr = qr;
+            QRCode.toDataURL(qr, { type: 'image/png', margin: 2 }).then((dataUrl) => {
+              this.currentQrDataUrl = dataUrl;
+              this.qrCallbacks.forEach((cb) => {
+                try { cb(qr, dataUrl); } catch (e) { console.error('QR callback error:', e); }
+              });
+            }).catch((e) => console.error('QR toDataURL error:', e));
           }
 
           if (connection === 'close') {
@@ -92,6 +104,8 @@ class UnofficialWhatsAppService {
               reject(new Error('Logged out. Please scan QR code again.'));
             }
           } else if (connection === 'open') {
+            this.currentQr = null;
+            this.currentQrDataUrl = null;
             console.log('WhatsApp client is ready!');
             this.isReady = true;
             if (!this._initialized) {
@@ -443,6 +457,18 @@ class UnofficialWhatsAppService {
     };
 
     return mimeTypes[ext] || 'application/octet-stream';
+  }
+
+  /** Возвращает текущий QR для отображения по HTTP (если ожидается сканирование) */
+  getCurrentQr() {
+    return this.currentQr
+      ? { qr: this.currentQr, dataUrl: this.currentQrDataUrl }
+      : null;
+  }
+
+  /** Подписаться на появление нового QR (например, для отправки в Telegram) */
+  onQr(callback) {
+    if (typeof callback === 'function') this.qrCallbacks.push(callback);
   }
 
   clearSession() {

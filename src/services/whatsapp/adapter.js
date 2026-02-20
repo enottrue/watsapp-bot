@@ -10,13 +10,16 @@ class WhatsAppAdapter {
     this.ownMessageCallbacks = []; // Для callback сообщений от себя
   }
 
-  async initialize() {
+  async initialize(options = {}) {
     if (this.provider === 'official') {
       this.service = new OfficialWhatsAppService();
       // Официальный API не требует инициализации клиента
       console.log('Using official WhatsApp Business Cloud API');
     } else {
       this.service = new UnofficialWhatsAppService();
+      if (typeof options.onQr === 'function') {
+        this.service.onQr(options.onQr);
+      }
       await this.service.initialize();
       console.log('Using Baileys (unofficial WhatsApp provider)');
     }
@@ -146,15 +149,30 @@ class WhatsAppAdapter {
       await this.service.disconnect();
     }
   }
+
+  /** Только для unofficial: текущий QR для отображения по HTTP / отправки в Telegram */
+  getCurrentQr() {
+    if (this.provider !== 'unofficial' || !this.service || !this.service.getCurrentQr) {
+      return null;
+    }
+    return this.service.getCurrentQr();
+  }
+
+  /** Только для unofficial: подписаться на появление QR (например, для Telegram) */
+  onQr(callback) {
+    if (this.provider === 'unofficial' && this.service && this.service.onQr) {
+      this.service.onQr(callback);
+    }
+  }
 }
 
 // Создаем singleton экземпляр
 let adapterInstance = null;
 
-export const getWhatsAppAdapter = async () => {
+export const getWhatsAppAdapter = async (options = {}) => {
   if (!adapterInstance) {
     adapterInstance = new WhatsAppAdapter();
-    await adapterInstance.initialize();
+    await adapterInstance.initialize(options);
   }
   return adapterInstance;
 };
